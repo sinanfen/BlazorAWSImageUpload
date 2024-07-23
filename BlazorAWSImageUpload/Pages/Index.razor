@@ -1,0 +1,101 @@
+﻿@page "/"
+@using BlazorAWSImageUpload.Services
+@inject IS3Service S3Service
+@inject IJSRuntime JSRuntime
+
+<h1>AWS S3 File Upload and Management</h1>
+
+<InputFile OnChange="@OnFileChange" accept=".jpg,.jpeg,.png" />
+<button class="btn btn-primary" @onclick="UploadFile" disabled="@(!fileSelected)">Upload</button>
+
+@if (!string.IsNullOrEmpty(uploadedFileUrl))
+{
+    <div class="mt-3">
+        <h3>Uploaded File:</h3>
+        <img src="@uploadedFileUrl" style="max-width: 300px;" />
+    </div>
+}
+<br />
+<button class="btn btn-secondary ml-2" @onclick="LoadAllFiles">Load All Files</button>
+
+@if (allFiles != null && allFiles.Any())
+{
+    <div class="mt-3">
+        <h3>All Files:</h3>
+        <ul>
+            @foreach (var file in allFiles)
+            {
+                <li>
+                    <a href="@file" target="_blank">@GetFileNameFromUrl(file)</a>
+                    <button class="btn btn-sm btn-info" @onclick="() => GetPreSignedUrl(GetFileKeyFromUrl(file))">Get Pre-Signed URL</button>
+                </li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    private IBrowserFile? selectedFile;
+    private bool fileSelected = false;
+    private string uploadedFileUrl = string.Empty;
+    private long maxFileSize = 10 * 1024 * 1024; // 10 MB
+    private string[] allowedFileTypes = new[] { ".jpg", ".jpeg", ".png" };
+    private List<string> allFiles = new List<string>();
+    private async Task OnFileChange(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        fileSelected = false;
+
+        if (selectedFile.Size > maxFileSize)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "File size exceeds the limit of 10 MB.");
+            return;
+        }
+
+        string fileExtension = Path.GetExtension(selectedFile.Name).ToLowerInvariant();
+        if (!allowedFileTypes.Contains(fileExtension))
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Only .jpg, .jpeg, and .png files are allowed.");
+            return;
+        }
+
+        fileSelected = true;
+    }
+
+    private async Task UploadFile()
+    {
+        if (selectedFile != null && fileSelected)
+        {
+            try
+            {
+                uploadedFileUrl = await S3Service.UploadFileAsync(selectedFile);
+                await JSRuntime.InvokeVoidAsync("alert", "File uploaded successfully!");
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("alert", $"Error uploading file: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task LoadAllFiles()
+    {
+        allFiles = await S3Service.GetAllFilesAsync();
+    }
+
+    private async Task GetPreSignedUrl(string fileKey)
+    {
+        var preSignedUrl = await S3Service.GetFileByKeyAsync(fileKey);
+        await JSRuntime.InvokeVoidAsync("alert", $"Pre-signed URL (valid for 5 minutes): {preSignedUrl}");
+    }
+
+    private string GetFileNameFromUrl(string url)
+    {
+        return Path.GetFileName(new Uri(url).LocalPath);
+    }
+
+    private string GetFileKeyFromUrl(string url)
+    {
+        return new Uri(url).LocalPath.TrimStart('/');
+    }
+}
